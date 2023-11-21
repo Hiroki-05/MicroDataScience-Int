@@ -1,0 +1,306 @@
+---
+title: "Problem_Set_1_Model_Answer"
+author: "Ito Hiroki"
+date: today
+execute:
+  warning: false
+  error: false
+format: 
+  html:
+    code-fold: true
+    embed-resources: true
+---
+
+
+#?ż˝Setup
+```{r}
+library(tictoc)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(kableExtra)
+```
+
+
+```{r}
+main <- function() {
+    # (a) semester_dummy_tidy ------------------------------------------------------
+    df_sememter_dummy <- read_semester_dummy()
+
+    # (b) gradrate_tidy ------------------------------------------------------
+    filepaths_outcome <- list.files(here::here('01.data', 'problem1_dataset', 'outcome'))
+
+    # 'purrr::map' version
+    df_outcome_based <-  purrr::map(filepaths_outcome, read_outcome_data)
+    # 'for' version
+    df_outcome_based <- read_outcome_data_for(filepaths_outcome)
+    
+    df_outcome_tidy <- modify_outcome_data(df_outcome_based)
+
+    # (c) covariates_tidy ------------------------------------------------------
+    df_covariates_tidy <- read_covariates_data()
+
+    
+    # (d) gradrate_ready ------------------------------------------------------
+    df_outcome_ready <- ready_outcome_data(df_outcome_tidy)
+
+
+    # (e) covariates_ready ------------------------------------------------------
+    df_covariates_ready <- modify_covariates_ready(df_covariates_tidy, df_outcome_ready)
+
+
+    # (f) master ------------------------------------------------------
+    df_master <- merge_dfs(df_sememter_dummy, df_outcome_ready, df_covariates_ready)
+}
+
+```
+
+## (a) semester_dummy_tidy
+
+### 1. 生データを読み込みなさい (semester_dummy_1.csv, semester_dummy_2.csv)
+### 2. emester_dummy_1.csvについては、1行目に格納されているデータを列名としなさい
+### 3. 2つのデータを適切に結合しなさい
+### 4. ’Y’列を削除しなさい
+```{r}
+read_semester_dummy <- function(){
+
+    # データが格納されているディレクトリのパスを取得する
+    list_filepath <- list.files(here::here('01.data', 'problem1_dataset', 'semester_dummy'))
+
+    # 空のデータフレームの作成
+    df_output <- tidyr::tibble()
+
+    for (file_path in list_filepath){
+
+        df_raw <- readr::read_csv(here::here('01.data', 'problem1_dataset', 'semester_dummy', file_path)) |> 
+        dplyr::mutate(dplyr::across(dplyr::everything(), as.character))
+
+        df_raw <- df_raw |> 
+            dplyr::mutate(x1 = as.character(x1))
+
+        df_output <- df_output |> 
+            dplyr::bind_rows(df_raw)
+    }
+
+    list_colnames <- df_output |> 
+        dplyr::slice_head(n = 1) |> 
+        as.character()
+
+    colnames(df_output) <- list_colnames
+
+    df_output <- df_output |> 
+        dplyr::slice(2:n()) |> 
+        dplyr::mutate(
+            year = as.numeric(year)
+        ) |> 
+        dplyr::select(-Y)
+
+
+    return(df_output)
+}
+
+
+```
+
+## (b) gradrate_tidy
+### 生データを読み込み、全て縦に結合しなさい
+
+#### map version
+```{r}
+
+read_outcome_data <- function(file_path){
+
+    # for (file_path in list_path){
+
+    df_raw <- openxlsx::read.xlsx(here::here('01.data', 'problem1_dataset', 'outcome', file_path)) 
+
+    df_output <- df_raw |> 
+        dplyr::mutate(dplyr::across(dplyr::everything(), as.character))
+
+    return(df_output)
+}
+```
+
+#### for version
+```{r}
+
+read_outcome_data_for <- function(list_filepath_outcome){
+
+    # 空のデータフレームの作成
+    df_based <- tidyr::tibble()
+
+    for (file_path in list_filepath_outcome){
+
+        df_raw <- openxlsx::read.xlsx(here::here('01.data', 'problem1_dataset', 'outcome', file_path)) |>
+        dplyr::mutate(dplyr::across(dplyr::everything(), as.character))
+
+        df_based <- df_based |>
+            dplyr::bind_rows(df_raw)
+    }
+
+    return(df_based)
+
+}
+
+
+```
+
+### 2. 女子学生の4年卒業率に0.01をかけて、0から1のスケールに変更しなさい
+```{r}
+
+modify_outcome_data <- function(df_input) {
+
+    df_output <- df_input |> 
+        dplyr::mutate(
+            women_gradrate_4yr = as.numeric(women_gradrate_4yr),
+            women_gradrate_4yr = women_gradrate_4yr*0.01,
+            dplyr::across(-c(unitid), as.numeric)
+        ) 
+
+
+    return(df_output)
+    
+}
+
+
+```
+
+
+## (c) covariates_tidy [???2]
+1. 生データを読み込みなさい (covariates.xlsx)
+2. ’university_id’という列名を’unitid’に変更しなさい。
+3. ’unitid’の最後についている”aaaa”を削除しなさい。
+4. 'category'列に含まれる'instatetuition', 'costs', 'faculty'を別の列として追加しなさい。
+```{r}
+read_covariates_data <- function() {
+
+    file_path <- list.files(here::here('01.data', 'problem1_dataset', 'covariates'))
+
+    df_raw <- openxlsx::read.xlsx(here::here('01.data', 'problem1_dataset', 'covariates', file_path))
+
+    df_output <- df_raw |>
+        dplyr::rename(unitid = university_id) |> 
+        dplyr::mutate(
+            unitid = stringr::str_replace_all(unitid, pattern = 'aaaa', replacement = ''),
+        ) |> 
+        tidyr::pivot_wider(
+            names_from = 'category',
+            values_from = 'value'
+        )
+
+
+    return(df_output)
+}
+
+```
+
+## (d) gradrate_ready
+1. 男女合計の4年卒業率と男子学生の4年卒業率を計算し、新たな列として追加しなさい
+2. 計算した卒業率を有効数字3桁に調整しなさい
+3. gradrateが欠損値の値を削除しなさい
+```{r}
+
+ready_outcome_data <- function(df_outcome_tidy) {
+
+    df_output <- df_outcome_tidy |> 
+        dplyr::mutate(
+            dplyr::across(-unitid, as.numeric),
+            gradrate = round(tot4yrgrads / totcohortsize, digits = 3),
+            men_gradrate = round(m_4yrgrads / m_cohortsize, digits = 3)
+        ) |> 
+        tidyr::drop_na(gradrate)
+        
+        
+    return(df_output)
+}
+
+```
+
+## (e) covariates_ready
+1. outcomeやsemester_dummyのデータの期間と合わせてください。
+1. outcome_dataに含まれるunitidを特定し、covariatesのunitidを限定してください。
+
+```{r}
+
+modify_covariates_ready <- function(df_covariates_tidy, df_outcome_ready) {
+
+    list_unitid_outcome <- df_outcome_ready |> 
+        dplyr::distinct(unitid) |> 
+        dplyr::pull()
+
+    # "another solution" 
+    # list_unitid_outcome <- unique(df_outcome_ready$unitid)
+    
+    df_output <- df_covariates_tidy |> 
+        dplyr::mutate(
+            dplyr::across(-unitid, as.numeric)
+        ) |> 
+        # 他のデータセットが以下の期間なので、共変量データも合わせる。
+        dplyr::filter(
+            unitid %in% list_unitid_outcome,
+            dplyr::between(year, 1991, 2010),
+            year != 1994)
+
+
+    return(df_output)
+
+}
+```
+
+
+## (f) master
+1. 結合に用いる変数を考え、semester_dummy_tidy, covariates_ready, gradrate_readyを適切に結合しなさい
+```{r}
+
+merge_dfs <- function(df_sememter_dummy, df_outcome_ready, df_covariates_ready) {
+
+    df_master <- plyr::join_all(
+        dfs = list(df_sememter_dummy, df_outcome_ready,df_covariates_ready),
+        by = c('unitid', 'year'),
+        type = 'left')
+
+
+    df_master <- df_master |> 
+        dplyr::mutate(
+            per_white_cohort = round(white_cohortsize / totcohortsize, digits = 3)
+        )
+
+    return(df_master)
+}
+
+```
+
+
+# Descriptive Statistics
+
+
+```{r}
+
+create_table <- function(df_master) {
+
+    df_kable_based <- df_master %>%
+        dplyr::summarise(
+            dplyr::across(-c(unitid, year, instnm, semester, quarter), list(
+            mean = ~mean(., na.rm = TRUE),
+            sd = ~sd(., na.rm = TRUE))
+            ) 
+        ) |> 
+        # dplyr::mutate(
+        #     category = 'category'
+        # ) |> 
+        pivot_longer(
+            cols = -dplyr::ends_with('mean'),
+            names_to = 'a',
+            values_to = 'value'
+        ) 
+        dplyr::mutate(
+             value = round(value, digits = 3)
+        )
+
+    df_kable_based |> 
+        kbl(table.attr = 'data-quarto-disable-processing="true"')
+
+}
+
+
+```
