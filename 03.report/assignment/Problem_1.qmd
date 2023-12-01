@@ -61,12 +61,12 @@ Academic Calendar on Postsecondary Student Outcomes.” *American Economic Journ
 
 
 ## 用いるデータ
-- gradrate_data(1991.csv - 2016.csv)
+- outcome(1991.csv - 2016.csv)
     - 卒業者数などの結果変数に関連するデータが格納されているファイル  
     - 各年に分かれている
-- covariates.xlsx
+- covariates(covariates.xlsx)
     - その他の変数データが格納されているファイル
-- semester_data_1.csv, semester_data_2.csv
+- semester_dummy(semester_data_1.csv, semester_data_2.csv)
     - 大学ごとの2学期制と4学期制の分類データが格納されているファイル
 
 　論文に使われている元データに関心がある学生は[Appendix (b)](#b-論文に使用されたデータソース)を参照すること。
