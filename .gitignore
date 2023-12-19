@@ -19,4 +19,4 @@
 
 # keep folder structure
 # !/00.cover/.gitkeep
-!*.gitkeep
+# !*.gitkeep
