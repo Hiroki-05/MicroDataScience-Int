@@ -18,4 +18,5 @@
 *.rds
 
 # keep folder structure
-!/00.cover/.gitkeep
+# !/00.cover/.gitkeep
+!*.gitkeep
