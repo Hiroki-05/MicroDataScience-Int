@@ -1,6 +1,10 @@
-# Except following
+# except this file
 !.gitignore
+
+# ignore all files in this directory
 00.cover/
+
+# ignore all files with these extensions
 *.exe
 *.html
 *.png
