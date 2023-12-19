@@ -11,3 +11,8 @@
 *.pdf
 *.zip
 *.do
+*.csv
+*.xlsx
+*.xls
+*.dta
+*.rds
