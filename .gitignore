@@ -16,3 +16,8 @@
 *.xls
 *.dta
 *.rds
+
+# keep folder structure
+/**
+!/**/
+!/**/.gitkeep
