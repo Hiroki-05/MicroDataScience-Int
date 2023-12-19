@@ -1,0 +1,4 @@
+# Except following
+!.gitignore
+00.cover/
+*.exe
