@@ -22,6 +22,7 @@ library(kableExtra)
 ```
 
 
+
 ```{r}
 main <- function() {
     # (a) semester_dummy_tidy ------------------------------------------------------
@@ -31,7 +32,8 @@ main <- function() {
     filepaths_outcome <- list.files(here::here('01.data', 'problem1_dataset', 'outcome'))
 
     # 'purrr::map' version
-    df_outcome_based <-  purrr::map(filepaths_outcome, read_outcome_data)
+    df_outcome_based <-  purrr::map(filepaths_outcome, read_outcome_data) |> 
+        dplyr::bind_rows()
     # 'for' version
     df_outcome_based <- read_outcome_data_for(filepaths_outcome)
     
@@ -48,11 +50,14 @@ main <- function() {
     # (e) covariates_ready ------------------------------------------------------
     df_covariates_ready <- modify_covariates_ready(df_covariates_tidy, df_outcome_ready)
 
-
     # (f) master ------------------------------------------------------
     df_master <- merge_dfs(df_sememter_dummy, df_outcome_ready, df_covariates_ready)
-}
 
+
+    # () save ------------------------------------------------------
+    write.csv(df_master, file = here::here('01.data', 'problem1_dataset', 'master.csv'))
+
+}
 ```
 
 ## (a) semester_dummy_tidy
@@ -197,7 +202,7 @@ read_covariates_data <- function() {
 ## (d) gradrate_ready
 1. 男女合計の4年卒業率と男子学生の4年卒業率を計算し、新たな列として追加しなさい
 2. 計算した卒業率を有効数字3桁に調整しなさい
-3. gradrateが欠損値の値を削除しなさい
+3. 卒業率に欠損値が含まれている行を削除しなさい
 ```{r}
 
 ready_outcome_data <- function(df_outcome_tidy) {
@@ -205,10 +210,10 @@ ready_outcome_data <- function(df_outcome_tidy) {
     df_output <- df_outcome_tidy |> 
         dplyr::mutate(
             dplyr::across(-unitid, as.numeric),
-            gradrate = round(tot4yrgrads / totcohortsize, digits = 3),
-            men_gradrate = round(m_4yrgrads / m_cohortsize, digits = 3)
+            gradrate4yr = round(tot4yrgrads / totcohortsize, digits = 3),
+            men_gradrate_4yr = round(m_4yrgrads / m_cohortsize, digits = 3)
         ) |> 
-        tidyr::drop_na(gradrate)
+        tidyr::drop_na(gradrate4yr)
         
         
     return(df_output)
@@ -217,8 +222,8 @@ ready_outcome_data <- function(df_outcome_tidy) {
 ```
 
 ## (e) covariates_ready
-1. outcomeやsemester_dummyのデータの期間と合わせてください。
-1. outcome_dataに含まれるunitidを特定し、covariatesのunitidを限定してください。
+1. outcomeやsemester_dummyに含まれる年を調べ、covariatesデータの期間を他のデータに揃えなさい
+1. outcome_dataに含まれるunitidを特定し、covariatesに含まれるunitidをoutcomeデータに揃えなさい
 
 ```{r}
 
@@ -250,6 +255,7 @@ modify_covariates_ready <- function(df_covariates_tidy, df_outcome_ready) {
 
 ## (f) master
 1. 結合に用いる変数を考え、semester_dummy_tidy, covariates_ready, gradrate_readyを適切に結合しなさい
+2. 白人学生が学生全体に占める割合を計算し、有効数字3桁に調整した上で、新たな列として追加しなさい
 ```{r}
 
 merge_dfs <- function(df_sememter_dummy, df_outcome_ready, df_covariates_ready) {
@@ -262,7 +268,8 @@ merge_dfs <- function(df_sememter_dummy, df_outcome_ready, df_covariates_ready) 
 
     df_master <- df_master |> 
         dplyr::mutate(
-            per_white_cohort = round(white_cohortsize / totcohortsize, digits = 3)
+            per_white_cohort = round(white_cohortsize / totcohortsize, digits = 3),
+            per_women_cohort = round(w_cohortsize / totcohortsize, digits = 3)
         )
 
     return(df_master)
@@ -271,36 +278,6 @@ merge_dfs <- function(df_sememter_dummy, df_outcome_ready, df_covariates_ready) 
 ```
 
 
-# Descriptive Statistics
-
-
 ```{r}
-
-create_table <- function(df_master) {
-
-    df_kable_based <- df_master %>%
-        dplyr::summarise(
-            dplyr::across(-c(unitid, year, instnm, semester, quarter), list(
-            mean = ~mean(., na.rm = TRUE),
-            sd = ~sd(., na.rm = TRUE))
-            ) 
-        ) |> 
-        # dplyr::mutate(
-        #     category = 'category'
-        # ) |> 
-        pivot_longer(
-            cols = -dplyr::ends_with('mean'),
-            names_to = 'a',
-            values_to = 'value'
-        ) 
-        dplyr::mutate(
-             value = round(value, digits = 3)
-        )
-
-    df_kable_based |> 
-        kbl(table.attr = 'data-quarto-disable-processing="true"')
-
-}
-
 
 ```

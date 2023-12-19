@@ -28,6 +28,8 @@ library(cobalt)
 # df_raw <- haven::read_dta(here::here('01.data', 'ipeds_cleaned_final.dta'))
 df_raw <- readr::read_csv(here::here('01.data', 'ipeds_cleaned_final.csv'))
 df_main <- readr::read_csv(here::here('01.data', 'based_df.csv'))
+
+df_stata <- readr::read_csv(here::here('01.data', 'stata', 'test_IPEDS_Analysis_Figure.csv'))
 ```
 
 # Clean Data Set
@@ -55,21 +57,16 @@ df_based <- df_based |>
   ) |> 
   dplyr::mutate(
     changer = dplyr::if_else(!is.na(yearstosem), 1, 0),
-    per_fem = (w_4yrgrads/w_cohortsize), # womangradrate4yrと同じ値
-    per_male=(m_4yrgrads/m_cohortsize) # mengradrate4yrと同じ値
+      # womengradrate4yr_mod = (w_4yrgrads/w_cohortsize), # womangradrate4yrと同じ値
+      # mengradrate4yr_mod = (m_4yrgrads/m_cohortsize), # mengradrate4yrと同じ値
+      # whitegradrate4yr_mod = (white_4yrgrads/white_cohortsize),
+      per_white=(white_cohortsize/totcohortsize),
+      per_urm=(urm_cohortsize/totcohortsize),
+      per_male=(m_cohortsize/totcohortsize),
+      per_fem=(w_cohortsize/totcohortsize)
   ) 
-colSums(is.na(df_based))
 # write.csv(df_based, file = here::here('01.data', 'based_df.csv'), fileEncoding = 'cp932', row.names = FALSE)
 ```
-
-```{r}
-#| include: false
-head(df_based) |> 
-  gt()
-
-# colnames(df_main)
-```
-
 # Figures and Tables
 
 ## Figure 1
@@ -156,17 +153,13 @@ ggplot() +
 
 ```
 ## scatter plots
-```{r}
-
-
-```
-
 
 
 ## Table 1 : Descriptive statistics
 ```{r}
 
-df_modified <- df_based |> 
+# df_modified <- df_based |> 
+df_modified <- df_stata |> 
   dplyr::select(
     unitid,
     year,
@@ -194,7 +187,7 @@ df_modified <- df_based |>
 df_table_based <- df_modified |>
   dplyr::filter(
     !category %in% c("semester2", "quarter2")
-  ) %>%
+  ) |> 
   dplyr::reframe(
     mean = round(mean(value, na.rm = TRUE), digits = 2),
     sd = round(sd(value, na.rm = TRUE), digits = 2),
@@ -218,7 +211,6 @@ df_table_based |>
   kbl(format = "html", booktabs = TRUE,
       table.attr = 'data-quarto-disable-processing="true"') |> 
   kable_styling(full_width = FALSE) 
-
 ```
 
 
@@ -357,7 +349,7 @@ df_table3_based |>
   dplyr::distinct(unitid) |> 
   nrow()
 
-fixest::feols(gradrate4yr ~ group1 + group2| unitid + year,
+fixest::feols(gradrate4yr ~ group1 + group2 | unitid + year,
               data = df_table3_based_a,
               # weights = ~ meansize,
               # weights = ~ weight,

@@ -1,0 +1,418 @@
+---
+title: "Problem Set 1. データ分析プログラミングの実践(1)"
+# author: "古川知志雄, 伊藤弘紀, 吹原ゆうや"
+date: today 
+format: 
+  html: 
+    embed-resources: true
+    self-contained: true
+execute: 
+  echo: false
+---
+
+
+# setup
+```{r}
+library(dplyr, warn.conflicts = FALSE)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(stringi)
+library(kableExtra)
+library(gtExtras)
+library(fixest)
+library(cobalt)
+library(fastDummies)
+library(data.table)
+library(dtplyr)
+library(patchwork)
+library(estimatr)
+```
+
+# Read data
+
+```{r}
+df <- readr::read_csv(here::here('01.data', 'problem1_dataset', 'master.csv'))
+```
+
+# 変数の追加
+```{r}
+add_more_varibales <- function(df) {
+
+    df_first_year  <- df |> 
+        dplyr::distinct(unitid, semester, quarter, .keep_all = TRUE) |> 
+        dplyr::group_by(unitid) |> 
+        dplyr::filter(
+            dplyr:::n() > 1
+        ) |> 
+        dplyr::filter(
+            semester == 1
+        ) |> 
+        dplyr::distinct(unitid, year) |> 
+        dplyr::rename(
+            yearofsem = year
+        ) |> 
+        ungroup()
+
+    df <- df |> 
+        dplyr::left_join(df_first_year, by = 'unitid')
+
+    # yearstosemが-3から−1の時に1をとるダミー
+    # これは、partially treatedのグループに属するダミーであり、入学後1−3年の間にsemesterに変更があった学生
+
+    # yearstosemが0以上で1を取るダミー
+    # これは、fully treatedのグループに属するダミーであり、入学開始時点からsemesterだった学生
+    df_output <- df |> 
+        dplyr::mutate(
+            yearstosem = year - yearofsem,
+            yearstosem = dplyr::if_else(is.na(yearstosem), -1000, yearstosem),
+            after = dplyr::if_else(yearstosem >= 0, 1, 0),
+            treated = dplyr::if_else(yearstosem >= 0 & !is.na(yearstosem), 1, 0)
+            # group1 = dplyr::if_else(is.na(group1), 0, group1),
+        ) |>
+        dplyr::group_by(unitid) |>
+        dplyr::mutate(
+            meansize = mean(totcohortsize, na.rm = TRUE)
+        ) |> 
+        dplyr::ungroup()
+
+    return(df_output)
+
+}
+
+
+df <- add_more_varibales(df)
+
+```
+
+
+## (a) 記述統計 (b回帰分析1でも使う)
+### 1. 問題背景などを知る上で役に立つ記述統計を作成しなさい
+```{r}
+descriptive_stats <- function(df) {
+
+    list_mean_vars <- c(
+        'semester',
+        'gradrate4yr',
+        'men_gradrate',
+        'women_gradrate_4yr',
+        'instatetuition',
+        'costs',
+        'per_white_cohort',
+        'per_women_cohort')
+
+    kbl_output <- df %>% 
+        # dtplyr::lazy_dt() |> 
+        dplyr::summarize(
+            mean = dplyr::across(list_mean_vars, ~mean(., na.rm = TRUE)),
+            sd = dplyr::across(list_mean_vars, ~sd(., na.rm = TRUE)),
+        ) |> 
+        t() |> 
+        tidyr::as_tibble(rownames = 'category') |> 
+        data.table::setnames(c('category', 'value')) |> 
+        dplyr::mutate(
+            value = round(value, digits = 2)
+        ) |> 
+        tidyr::separate(
+            col = category, 
+            into = c("category", "variable"),
+            sep = '\\.',
+        ) |> 
+        tidyr::pivot_wider(
+            names_from = category,
+            values_from = value
+        ) |> 
+        kableExtra::kbl() |> 
+        kableExtra::kable_styling(full_width = FALSE)
+
+    return(kbl_output)
+}
+
+descriptive_stats(df)
+
+```
+
+### 2. 卒業率の平均推移をプロットしなさい
+```{r}
+df_plot_based <- df |> 
+  dplyr::summarise(
+    mean = mean(gradrate4yr, na.rm = TRUE),
+    .by = year
+  )
+
+
+ggplot(df_plot_based, aes(x = year, y = mean))+
+  # geom_point() +
+  geom_line() +
+  theme_bw() +
+  scale_y_continuous(
+    limits = c(0.25, 0.45),
+    breaks = seq(0.25, 0.45, 0.05)
+  ) +
+  labs(
+    title = 'Fraction of Four-Year Graduation Rates'
+  )
+
+
+```
+
+
+### 3. semester導入率の推移をプロットしなさい\
+```{r}
+df_plot_based <- df |> 
+  dplyr::summarise(
+    semester_size = sum(semester),
+    total_size = dplyr::n(),
+    .by = c(year)
+  ) |> 
+  dplyr::mutate(
+    percent = semester_size / total_size
+  )
+
+ggplot(df_plot_based, aes(x = year, y = percent)) +
+  geom_line() +
+  theme_bw() +
+  scale_y_continuous(
+    limits = c(0.80, 1),
+    breaks = seq(0.80, 1, 0.05)
+  ) +
+  labs(
+    title = 'Fraction of Schools on Semesters'
+  )
+```
+
+### 4. **変数に適切な処理を加えた上**で、以下の散布図を作成しなさい。また、重要だと思うものについて議論しなさい
+```{r}
+plot_scatter <- function(df, x_var) {
+
+    # x_var <- rlang::enquo(x_var)
+    x_var <- rlang::sym(x_var)
+
+    df_plot_based <- df |> 
+        dplyr::summarise(
+            gradrate_mean = mean(gradrate4yr, na.rm = TRUE),
+            x_mean = mean(!!x_var, na.rm = TRUE),
+            semester = mean(semester, na.rm = TRUE),
+            .by = 'unitid'
+        )
+
+    plot_output <- ggplot(df_plot_based, aes(x = x_mean, y = gradrate_mean)) +
+        geom_point() +
+        theme_bw() +
+        geom_smooth(method = 'lm', se = FALSE) +
+        theme(
+            axis.text.x = element_text(size = 14),
+            axis.text.y = element_text(size = 14),
+            axis.title = element_text(size = 16)
+        ) +
+        labs(
+            x = x_var
+        )
+
+    file_name <- paste0(x_var, '.png')
+
+    ggsave(plot_output, 
+           filename = here::here('02.code', 'output', 'scatter', file_name),
+           width = 8, height = 6)
+
+    return(plot_output)
+}
+```
+
+
+```{r}
+list_x_vars  <- c(
+    # "year",
+    "w_cohortsize",
+    "m_cohortsize",
+    "instatetuition",
+    "costs",
+    "faculty",
+    "white_cohortsize",
+    "per_white_cohort"
+)
+
+for (x_var in list_x_vars) {
+    print(x_var)
+    # plot_scatter(df, 'w_cohortsize', gradrate)
+    plot_scatter(df, x_var)
+}
+
+```
+
+1. 4年卒業率と男子学生比率
+```{r}
+plot_scatter(df, "men_gradrate")
+```
+
+2. 4年卒業率と女子学生比率
+```{r}
+plot_scatter(df, "women_gradrate_4yr")
+```
+
+3. 4年卒業率と白人学生割合
+```{r}
+plot_scatter(df, "per_white_cohort")
+```
+
+4. 4年卒業率と年間運営コスト(costs)
+```{r}
+plot_scatter(df, "costs")
+```
+
+5. 4年卒業率と学費(instatetuition)
+```{r}
+plot_scatter(df, "instatetuition")
+```
+
+
+### (Adv.) semester導入率と共変量の関係を分析しなさい
+
+- Table2に沿って作成する。
+```{r}
+list_covariates <- c(
+    "instatetuition",
+    "costs",
+    "faculty",
+    "per_women_cohort",
+    "per_white_cohort"
+)
+
+y_var = "per_women_cohort"
+
+colSums(is.na(df))
+
+
+estimate_semester <- function(y_var, df) {
+
+    formula_based = as.formula(paste0(y_var, " ~ semester + i(year) + i(unitid, year) | year + unitid"))
+
+    estimate_based <- fixest::feols(
+        fml = formula_based,
+        weights = ~ meansize,
+        data = df) |> 
+        etable() 
+
+    colnames(estimate_based) <- c("coef", "value")
+
+    slice_head(estimate_based, n = 5)
+
+    # estimate_output <- estimate_based |> 
+    estimate_based |> 
+        tidyr::as_tibble() |> 
+        dplyr::filter(str_detect(coef, "semester")) |> 
+        tidyr::separate(
+            col = "value", 
+            into = c("value", "se"),
+            sep = " "
+        ) |> 
+        dplyr::mutate(
+            # value = stringr::str_replace_all(value, pattern = "\\*", replacement = "")
+            value = stringr::str_remove(value, "\\*"),
+            se = stringr::str_remove_all(se, "\\(|\\)"),
+            across(c(value, se), as.numeric)
+        )
+
+
+    return(estimate_output)    
+}
+
+estimate_dfs <- purrr::map(list_covariates, estimate_semester, df) |> 
+    dply::bind_rows()
+```
+
+
+```{r}
+estimate_dfs |> dplyr::bind_rows()
+```
+
+## 回帰分析
+### 2.以下の式を推定し、適切な形で結果を出力しなさい
+- $s$：大学、$k$：相対年数(yearstosem)
+$$ 
+Y_{sk} = \beta_0 + \beta_1 \text{treated}_{sk} + \varepsilon_{st} \label{base_eq}\tag{1}
+$$  
+```{r}
+
+estimate_simple <- function (df) {
+
+    result <- estimatr::lm_robust(
+        formula = gradrate4yr ~ treated,
+        data = df
+    )
+
+    list_result <- list(
+        "simple" = result
+    )
+
+    gm <- tibble(
+        raw = c("nobs"),
+        clean = c("N"),
+        fmt = c(0)
+        )
+
+    result_summary <-  list_result |> 
+        modelsummary::msummary(
+            fmt = "%.4f", 
+            # estimate =  "{estimate}{stars}",
+            # stars = c('*' = .1, '**' = .05, '***' = .01),
+            gof_map = gm,
+            gof_omit = 'AIC|BIC|RMSE|R2',
+            output = "kableExtra")
+
+
+    return(result_summary)
+}
+
+estimate_simple(df)
+```
+
+
+### (Adv.) 数式 (1) の問題点を指摘し、修正した式を考え推定しなさい
+
+#### 問題点の指摘
+- 欠落変数バイアスが考えられていない
+- semester制開始時点の学年が考慮されていない。
+```{r}
+
+estimate_complex <- function(df) {
+
+    df_estimate_based <- df |> 
+        dplyr::mutate(
+            partially_treated = dplyr::if_else(yearstosem > -3 & yearstosem <= -1, 1, 0)
+        )
+
+    result <- fixest::feols(
+        gradrate4yr ~ partially_treated + treated + instatetuition + costs + per_white + per_women_cohort + per_white_cohort + i(year) + i(unitid, year) | year + unitid,
+        weights = ~ meansize,
+        data = df_estimate_based) |> 
+        etable()
+
+    colnames(result) <- c("coef", "value")
+
+    slice_head(result, n = 5)
+
+    # estimate_output <- estimate_based |> 
+    result |> 
+        tidyr::as_tibble() |> 
+        dplyr::filter(str_detect(coef, "semester")) |> 
+        tidyr::separate(
+            col = "value", 
+            into = c("value", "se"),
+            sep = " "
+        ) |> 
+        dplyr::mutate(
+            # value = stringr::str_replace_all(value, pattern = "\\*", replacement = "")
+            value = stringr::str_remove(value, "\\*"),
+            se = stringr::str_remove_all(se, "\\(|\\)"),
+            across(c(value, se), as.numeric)
+        )
+
+
+    
+    
+    
+
+}
+
+```

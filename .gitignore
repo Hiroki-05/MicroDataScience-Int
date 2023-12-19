@@ -2,3 +2,7 @@
 !.gitignore
 00.cover/
 *.exe
+*.html
+*.png
+*.pdf
+*.zip
